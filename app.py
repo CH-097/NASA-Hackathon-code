@@ -71,3 +71,6 @@ st.pydeck_chart(pdk.Deck(
     tooltip={"text": "Similarity: {mars_similarity}\nMean T: {temp_mean} K"},
 ))
 st.dataframe(top.sort_values("mars_similarity", ascending=False).head(20))
+
+
+# 6 - 
