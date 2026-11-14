@@ -73,4 +73,4 @@ st.pydeck_chart(pdk.Deck(
 st.dataframe(top.sort_values("mars_similarity", ascending=False).head(20))
 
 
-# 6 - 
+# 6 - streamlit run app.py
