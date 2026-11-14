@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth Analog Finder — Similarity Heat Map (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen&family=IBM+Plex+Mono:wght@400;600&family=Saira+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#020c17; --land:#0e2740; --border:#1c3b5a; --gold:#e8b86d; --gold-dim:#7d6640;
+  --orange:#e0532b; --pale:#fff3c4; --ink:#f3e6cc; --quiet:#9fb3c8; --panel:#071a2c; --brown:#2e1a09;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Saira Condensed',system-ui,sans-serif;overflow:hidden}
+button{font:inherit;color:inherit}
+#app{position:relative;width:100vw;height:100vh;min-height:520px}
+
+/* top bar */
+#topbar{position:absolute;left:0;right:0;top:0;height:64px;display:flex;align-items:center;gap:20px;padding:0 20px 0 24px;z-index:5;
+  background:linear-gradient(var(--bg) 70%, transparent)}
+#brand{font-family:'Silkscreen',monospace;color:var(--gold);font-size:20px;letter-spacing:1px;white-space:nowrap}
+#targetToggle,#viewToggle{display:flex;border:1.5px solid var(--gold);border-radius:999px;overflow:hidden}
+#targetToggle button,#viewToggle button{background:none;border:0;padding:6px 18px;font-weight:700;letter-spacing:1px;cursor:pointer;color:var(--gold);font-size:15px}
+#targetToggle button[aria-pressed="true"],#viewToggle button[aria-pressed="true"]{background:var(--gold);color:var(--bg)}
+#targetToggle,#viewToggle{flex:none}
+#targetToggle button,#viewToggle button{display:flex;align-items:center;gap:7px;white-space:nowrap;padding:6px 14px}
+#targetSub{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ico{width:20px;height:20px;flex:none}
+.ico.line{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#targetToggle button[aria-pressed="false"] .ico{opacity:.85}
+#targetSub{color:var(--quiet);font-size:14px;white-space:nowrap}
+#legend{position:absolute;right:22px;bottom:20px;z-index:6;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--quiet);background:rgba(7,26,44,.85);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+body.detailing #legend{display:none}
+#dataStatus{margin-left:auto}
+#legendBar{width:160px;height:10px;border-radius:5px}
+#demoBadge{border:1px dashed var(--gold-dim);color:var(--gold);padding:3px 8px;border-radius:6px;font-size:12px;white-space:nowrap}
+
+/* left rail */
+#rail{position:absolute;left:14px;top:84px;z-index:6;display:flex;flex-direction:column;gap:10px}
+#rail .hint{font-size:12px;color:var(--quiet);margin:0 0 2px 4px;letter-spacing:.5px}
+.pbtn{display:flex;align-items:center;gap:10px;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+.pbtn .dot{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--gold);background:transparent;transition:background .15s, opacity .15s}
+.pbtn svg{width:24px;height:24px;stroke:var(--gold);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pbtn .lbl{font-weight:700;letter-spacing:1.2px;font-size:14px;color:var(--gold);opacity:.75}
+.pbtn[aria-pressed="true"] .dot{background:var(--gold)}
+.pbtn[aria-pressed="true"] svg{stroke:var(--bg)}
+.pbtn[aria-pressed="true"] .lbl{opacity:1}
+.pbtn:disabled{cursor:not-allowed}
+.pbtn:disabled .dot{border-style:dashed;opacity:.35;background:transparent}
+.pbtn:disabled svg{stroke:var(--gold)}
+.pbtn:disabled .lbl{opacity:.35;text-decoration:line-through}
+.pbtn:focus-visible .dot{outline:2px solid var(--pale);outline-offset:3px}
+#railNote{font-size:12px;color:var(--quiet);max-width:150px;margin-left:4px;min-height:30px}
+
+/* top sites */
+#topSites{position:absolute;left:14px;bottom:16px;z-index:6;width:250px;background:rgba(7,26,44,.88);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+#topSites h3{margin:0 0 6px;font-size:13px;letter-spacing:1.2px;color:var(--gold);font-weight:700}
+#topSites ol{margin:0;padding-left:20px;font-size:14px}
+#topSites li{cursor:pointer;padding:1px 0;color:var(--ink)}
+#topSites li .r{display:flex;justify-content:space-between;gap:8px}
+#topSites li:hover{color:var(--pale);text-decoration:underline}
+#topSites li b{color:var(--gold);font-weight:600}
+
+/* map */
+#mapWrap{position:absolute;left:200px;right:12px;top:64px;bottom:12px;transform-origin:top right;transition:transform .55s cubic-bezier(.6,.05,.25,1), border-color .3s, opacity .25s;border:2px solid transparent;border-radius:6px;background:var(--bg)}
+#mapWrap svg,#mapWrap canvas{position:absolute;left:0;top:0}
+#mapWrap canvas#heat{pointer-events:none}
+#mapWrap.mini{border-color:var(--gold);cursor:pointer;z-index:8}
+body.detailing #topSites{display:none}
+#marker{pointer-events:none}
+
+/* tooltip */
+#tip{position:absolute;z-index:20;pointer-events:none;min-width:250px;max-width:300px;background:#0b2238;border:2px solid #000;box-shadow:0 0 0 2px #e98a6a inset;display:none;font-size:15px}
+#tip .hd{background:var(--orange);color:var(--pale);padding:6px 10px;font-weight:700;font-size:19px;display:flex;justify-content:space-between;gap:10px}
+#tip .loc{padding:4px 10px;color:var(--gold);border-bottom:1px solid #2a4a6a;font-size:14px}
+#tip .rows{padding:6px 10px 8px}
+#tip .row{display:grid;grid-template-columns:86px 1fr 40px;align-items:center;gap:8px;color:var(--gold);height:22px}
+#tip .bar{height:6px;background:#1d3a57;border-radius:3px;overflow:hidden}
+#tip .bar i{display:block;height:100%;background:var(--gold)}
+#tip .foot{padding:0 10px 7px;color:var(--quiet);font-size:12px}
+
+/* detail */
+#detail{position:absolute;inset:64px 0 0 0;z-index:4;padding:8px 28px 24px 210px;overflow:auto;opacity:0;pointer-events:none;transition:opacity .35s .25s}
+#detail.show{opacity:1;pointer-events:auto}
+#back{background:none;border:1px solid var(--gold-dim);color:var(--gold);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:14px}
+#dTitle{font-family:'Silkscreen',monospace;color:var(--gold);font-size:34px;line-height:1.1;margin:14px 0 4px;max-width:calc(100% - 360px);text-transform:uppercase}
+#dSub{color:var(--quiet);font-size:15px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.badge{border:1px solid var(--gold);color:var(--gold);border-radius:999px;padding:1px 9px;font-size:12px;letter-spacing:.8px}
+.badge.known{border-color:var(--quiet);color:var(--quiet)}
+.grid{display:grid;grid-template-columns:minmax(520px,1.45fr) minmax(300px,1fr);gap:24px;align-items:start}
+.matchBox{background:var(--brown);border:2px solid var(--gold);padding:16px 18px;font-family:'IBM Plex Mono',monospace;color:var(--gold)}
+.matchHead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.matchHead .ttl{font-size:13px;letter-spacing:.5px}
+.matchHead .big{font-size:30px;font-weight:600;color:var(--pale)}
+.matchInner{display:grid;grid-template-columns:1fr 210px;gap:16px;align-items:center}
+.prow{padding:7px 0;border-bottom:1px dashed rgba(232,184,109,.25);font-size:12.5px}
+.prow:last-child{border-bottom:0}
+.prow .nm{display:flex;justify-content:space-between;font-weight:600;font-size:13px}
+.prow .vals{color:#d9b98a;margin:2px 0 4px}
+.prow .sb{height:6px;background:rgba(232,184,109,.18);border-radius:3px;overflow:hidden}
+.prow .sb i{display:block;height:100%;background:var(--orange)}
+.prow.off{opacity:.38}
+.imgs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:118px}
+.imgs .cap{font-size:20px;color:#e9805c;margin-bottom:4px;letter-spacing:.5px}
+.imgs .frame{border:2.5px solid #d4532c;height:150px;display:grid;place-items:center;text-align:center;padding:10px;font-size:13px;color:var(--ink);line-height:1.3}
+.frame.earth{background:repeating-linear-gradient(160deg,#6b3a22 0 10px,#8e5230 10px 18px,#b06b3c 18px 24px)}
+.frame.mars{background:radial-gradient(circle at 30% 40%,#c99a6b,#9c6a40 60%,#6e4526)}
+.frame.moon{background:radial-gradient(circle at 35% 35%,#9a9a9a,#5f5f5f 55%,#2c2c2c)}
+.frame span{background:rgba(2,12,23,.72);padding:6px 8px;border-radius:4px}
+.explain{margin-top:20px;font-family:'IBM Plex Mono',monospace;font-size:13.5px;line-height:1.55;color:var(--gold);max-width:1100px}
+.explain h4{margin:14px 0 2px;font-size:12px;letter-spacing:1.5px;color:#e9805c;font-weight:600}
+.explain p{margin:0}
+.explain .limits{color:var(--quiet);font-size:12.5px;margin-top:14px}
+.terrain3d{margin-top:22px;border:2px solid var(--gold);background:#06182a;padding:12px 14px 10px;max-width:1240px}
+.t3head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.t3head span:first-child{color:var(--gold);font-weight:700;letter-spacing:1.5px;font-size:15px}
+.t3hint{color:var(--quiet);font-size:13px}
+.t3grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.t3cap{color:#e9805c;font-size:15px;margin-bottom:4px;letter-spacing:.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t3grid canvas{width:100%;height:280px;display:block;background:radial-gradient(circle at 50% 40%,#0e2c48,#030f1c);border:1px solid #1c3b5a;cursor:grab;touch-action:none}
+.t3note{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--gold);margin-top:8px;line-height:1.5}
+.t3note b{color:var(--pale)}
+#dataStatus{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--quiet);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 9px;white-space:nowrap;max-width:300px;min-width:0}
+#dataStatus .txt{overflow:hidden;text-overflow:ellipsis}
+#dataStatus .dot{width:8px;height:8px;border-radius:50%;background:#e8b86d;flex:none}
+#dataStatus.live .dot{background:#5fd18b} #dataStatus.live{color:#bfe8cf}
+#dataStatus.loading .dot{background:#6fb7ff;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+#dataStatus button,#methodBtn{background:none;border:1px solid var(--gold-dim);color:var(--gold);border-radius:6px;cursor:pointer;font-size:13px;padding:2px 8px}
+#methodBtn{display:flex;align-items:center;gap:6px;padding:5px 10px;font-weight:700;letter-spacing:1px;flex:none}
+#methodBtn svg,#weightsBtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#weightsBtn{display:flex;align-items:center;gap:6px;background:none;border:1px solid var(--gold-dim);color:var(--gold);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:13px;margin-left:2px;width:max-content}
+#weightsPanel{position:absolute;left:200px;top:84px;z-index:12;width:250px;background:#0b2238;border:1.5px solid var(--gold);border-radius:8px;padding:10px 12px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#weightsPanel .wh{display:flex;justify-content:space-between;align-items:center;color:var(--gold);font-weight:700;letter-spacing:1px;font-size:13px;margin-bottom:6px}
+#weightsPanel .wh button{background:none;border:0;color:var(--quiet);cursor:pointer;font-size:13px;margin-left:6px}
+.wrow{margin:6px 0}.wl{display:flex;justify-content:space-between;font-size:14px;color:var(--ink)}.wl b{color:var(--gold)}
+.wrow input{width:100%;accent-color:#e8b86d}
+#methodPanel{position:fixed;inset:0;z-index:40;background:rgba(1,8,15,.75);display:grid;place-items:center;padding:20px}
+#methodPanel[hidden]{display:none}
+.mbox{position:relative;max-width:860px;max-height:88vh;overflow:auto;background:#071a2c;border:2px solid var(--gold);padding:22px 26px;font-size:15px;line-height:1.45}
+.mbox h2{font-family:'Silkscreen',monospace;color:var(--gold);font-weight:400;margin:0 0 10px;font-size:22px}
+#methodClose{position:absolute;right:12px;top:8px;background:none;border:0;color:var(--quiet);font-size:24px;cursor:pointer}
+.steps li{margin-bottom:8px}.steps b{color:var(--gold)} .mbox code{color:var(--pale)}
+.mt{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:10px}.mt th,.mt td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border)}.mt th{color:var(--gold);font-weight:600}
+.mnote{color:var(--quiet);font-size:13px}
+.badge.live{border-color:#5fd18b;color:#9fe3bb}
+.src{font-size:10.5px;border:1px solid rgba(232,184,109,.4);border-radius:3px;padding:0 4px;margin-left:4px;color:#c9a679}
+.src.live{border-color:#5fd18b;color:#9fe3bb}
+#miniCap{position:absolute;z-index:7;color:var(--quiet);font-size:12px;display:none}
+
+@media (max-width:900px){
+  #detail{padding-left:84px}
+  #rail .lbl{display:none} #mapWrap{left:76px} #topSites{display:none}
+  .grid{grid-template-columns:1fr} #dTitle{max-width:100%;font-size:24px;margin-top:150px}
+  #targetSub,#dataStatus{display:none}
+  .t3grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div id="brand">EARTH ANALOG FINDER</div>
+    <div id="targetToggle" role="group" aria-label="Compare Earth against">
+      <button data-t="mars" aria-pressed="true" title="Compare Earth with Mars"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#c1502e"/><path d="M5 9c3-1 5 1 8 0s4-2 6-1" stroke="#8a3218" stroke-width="2" fill="none" stroke-linecap="round"/><ellipse cx="9" cy="15" rx="3" ry="1.6" fill="#8a3218"/><circle cx="16" cy="14" r="1.4" fill="#e3875c"/><circle cx="12" cy="12" r="9" fill="none" stroke="#f3c8a8" stroke-opacity=".5"/></svg>MARS</button>
+      <button data-t="moon" aria-pressed="false" title="Compare Earth with the Moon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#b9b9b4"/><circle cx="9" cy="9" r="2.2" fill="#8d8d88"/><circle cx="15" cy="14" r="3" fill="#8d8d88"/><circle cx="8.5" cy="15.5" r="1.3" fill="#8d8d88"/><circle cx="15.5" cy="7.5" r="1" fill="#8d8d88"/><circle cx="12" cy="12" r="9" fill="none" stroke="#eeeeea" stroke-opacity=".6"/></svg>MOON</button>
+    </div>
+    <div id="viewToggle" role="group" aria-label="Map view">
+      <button data-v="map" aria-pressed="true" title="Flat world map"><svg class="ico line" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="1.5"/><path d="M2.5 12h19M8.8 5v14M15.2 5v14"/></svg>FLAT MAP</button>
+      <button data-v="globe" aria-pressed="false" title="3D globe you can rotate"><svg class="ico line" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7.5h14M5 16.5h14"/></svg>GLOBE</button>
+    </div>
+    <div id="targetSub"></div>
+    <div id="dataStatus"></div>
+    <button id="methodBtn" title="How the scores are made"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7M8 11h7"/></svg>METHOD</button>
+  </header>
+
+  <div id="legend" title="Colours stretch across the current range of scores"><span id="legLo">0%</span><canvas id="legendBar" width="160" height="10"></canvas><span id="legHi">100% match</span></div>
+  <nav id="rail" aria-label="Parameters to compare">
+    <div class="hint">COMPARE BY</div>
+  </nav>
+
+  <div id="weightsPanel" hidden>
+    <div class="wh"><span>FACTOR WEIGHTS</span><span><button id="wReset">Reset</button><button id="wClose" aria-label="Close weights">×</button></span></div>
+    <div id="weightsList"></div>
+  </div>
+  <aside id="topSites"><h3>TOP NAMED SITES</h3><ol id="topList"></ol></aside>
+
+  <div id="mapWrap" aria-label="Similarity heat map">
+    <svg id="base"></svg>
+    <canvas id="heat"></canvas>
+    <svg id="overlay"></svg>
+  </div>
+  <div id="miniCap">Click the map to return</div>
+
+  <div id="tip" role="status"></div>
+
+  <div id="methodPanel" hidden role="dialog" aria-label="Methodology">
+    <div class="mbox">
+      <button id="methodClose" aria-label="Close">×</button>
+      <h2>HOW THE SCORES ARE MADE</h2>
+      <ol class="steps">
+        <li><b>Retrieve Earth data.</b> NASA POWER satellite climatology for each site (temperature, day–night range, precipitation, humidity, sunlight, wind; aerosol depth where available). Bulk gridded data via NASA Earthdata and the <code>earthaccess</code> Python library (NetCDF-4 with xarray).</li>
+        <li><b>Retrieve Moon / Mars data.</b> NASA PDS: LRO Diviner for lunar temperature and illumination; MRO Mars Climate Sounder and MGS TES for Mars. OPUS (pds-imaging.jpl.nasa.gov/search) is the easiest search front end.</li>
+        <li><b>Score similarity.</b> Each factor is put on a common scale. Similarity = 100% at an exact match, falling linearly to 0% once the gap reaches the factor's spread. The overall score is the weighted average of the factors you switch on.</li>
+        <li><b>Visualize.</b> Scores per site and per map cell are shown on the heat map, the globe and the site summaries.</li>
+      </ol>
+      <table class="mt"><thead><tr><th>Factor</th><th>Source</th><th>Mars</th><th>Moon</th><th>Spread</th></tr></thead><tbody id="methodRows"></tbody></table>
+      <p class="mnote">Best file formats: NetCDF-4 for gridded climate, GeoTIFF for rasters such as DEMs. Avoid HDF4 and shapefiles where possible.<br>Limits: roughness is an estimate index; the heat map between named sites is interpolated; Earth cannot reproduce reduced gravity, vacuum or a thin CO₂ atmosphere, or the radiation environment.</p>
+    </div>
+  </div>
+  <section id="detail" aria-live="polite">
+    <button id="back">&larr; Back to map (Esc)</button>
+    <div id="dTitle"></div>
+    <div id="dSub"></div>
+    <div class="grid">
+      <div class="matchBox">
+        <div class="matchHead"><span class="ttl" id="mTtl">Similarities matched</span><span class="big" id="mBig"></span></div>
+        <div class="matchInner"><div id="pRows"></div><svg id="radar" viewBox="-22 0 254 210" role="img" aria-label="Radar of parameter similarity"></svg></div>
+      </div>
+      <div class="imgs">
+        <div><div class="cap">EARTH MATCH</div><div class="frame earth"><span id="imgE"></span></div></div>
+        <div><div class="cap" id="capT">MARS</div><div class="frame mars" id="frameT"><span id="imgT"></span></div></div>
+      </div>
+    </div>
+    <div class="terrain3d">
+      <div class="t3head"><span>TERRAIN · 3D</span><span class="t3hint">Drag either view to rotate both · scroll to zoom</span></div>
+      <div class="t3grid">
+        <div><div class="t3cap">EARTH · <span id="t3e"></span></div><canvas id="t3a" aria-label="3D terrain of the Earth site"></canvas></div>
+        <div><div class="t3cap" id="t3tCap">MARS</div><canvas id="t3b" aria-label="3D terrain of the target site"></canvas></div>
+      </div>
+      <div class="t3note" id="t3note"></div>
+    </div>
+    <div class="explain" id="explain"></div>
+  </section>
+</div>
+
+<script>/*D3*/</script>
+<script>/*TOPO*/</script>
+<script>/*THREE*/</script>
+<script>
+const WORLD = /*WORLD*/;
+</script>
+<script>
+/* ======================= PLACEHOLDER MODEL =======================
+   Everything below the line "DATA" is illustrative. Replace TARGETS,
+   SITES and the per-cell values with the comparison program's output
+   (scores.csv, earth_values.csv, targets.json, sites.json).
+=================================================================== */
+/* ===================== DATA MODEL =====================
+   Factors, target profiles, scoring scales and weights follow the team's
+   "Terraform Finder" model (src/lib/types.ts + scoring.ts), extended with
+   wind and dust. Site values: NASA POWER climatology when the live fetch
+   succeeds, otherwise published estimates. Roughness is an estimate index.
+========================================================= */
+const PARAMS = [
+  {k:'tmean', name:'TEMPERATURE', short:'Temperature', fmt:v=>`${Math.round(v)} °C`, scale:40, weight:30, power:true,
+   desc:'Mean annual surface air temperature (NASA POWER T2M)'},
+  {k:'swing', name:'TEMP SWING', short:'Temp swing', fmt:v=>`${Math.round(v)} °C`, scale:40, weight:15, power:true,
+   desc:'Average day–night temperature range (POWER T2M_MAX − T2M_MIN)'},
+  {k:'arid', name:'ARIDITY', short:'Aridity', fmt:v=>`${Math.round(v)} / 100`, scale:30, weight:25, power:true,
+   desc:'Dryness index from precipitation and humidity (100 = drier than the Atacama)'},
+  {k:'solar', name:'SOLAR', short:'Solar', fmt:v=>`${Math.round(v)} / 100`, scale:30, weight:15, power:true,
+   desc:'Usable sunlight vs. Earth\'s best sites (POWER ALLSKY_SFC_SW_DWN, 100 = 8.5 kWh/m²/day)'},
+  {k:'rough', name:'ROUGHNESS', short:'Roughness', fmt:v=>`${Math.round(v)} / 100`, scale:30, weight:15, power:false,
+   desc:'Terrain ruggedness index (published-terrain estimate; replace with SRTM / Copernicus DEM)'},
+  {k:'wind', name:'WIND', short:'Wind', fmt:v=>`${v.toFixed(1)} m/s`, scale:4, weight:10, power:true,
+   desc:'Mean wind speed at 2 m (POWER WS2M). Mars only'},
+  {k:'dust', name:'DUST', short:'Dust', fmt:v=>`${v.toFixed(2)} AOD`, scale:0.4, weight:10, power:true,
+   desc:'Aerosol optical depth, a dust proxy (POWER AOD_55 / MERRA-2). Mars only'}
+];
+const ICONS = {
+  tmean:'<path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/>',
+  swing:'<path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="9"/><path d="M5.5 9.5h3M7 8v3"/><path d="M15.5 14h3"/>',
+  arid:'<path d="M12 3s-6 7-6 11a6 6 0 0 0 12 0c0-4-6-11-6-11z"/><path d="M4 4l16 16"/>',
+  solar:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  rough:'<path d="M2 18l4-7 3 4 4-9 3 6 2-3 4 9"/>',
+  wind:'<path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h16a3 3 0 1 1-3 3"/><path d="M3 16h8"/>',
+  dust:'<circle cx="6" cy="8" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="9" r="1.4"/><circle cx="8" cy="14" r="1.4"/><circle cx="15" cy="13" r="1.4"/><circle cx="11" cy="19" r="1.4"/><circle cx="19" cy="17" r="1.4"/>'
+};
+const TARGETS = {
+  mars:{label:'MARS', sub:'vs. global Mars surface profile', frame:'mars', img:'HiRISE / CTX tile of the target site',
+    v:{tmean:-63, swing:80, arid:100, solar:43, rough:70, wind:5, dust:0.6}, na:[],
+    blurb:'Reference values from MGS-TES and MRO-MCS climatologies: mean surface temperature ≈ −63 °C, day–night swings up to ~80 °C, hyper-arid dusty terrain and ~43% of Earth\'s solar flux. Wind and dust: typical lander-measured winds and background dust optical depth (estimates).'},
+  moon:{label:'MOON', sub:'vs. lunar south-pole base profile', frame:'moon', img:'LROC NAC tile of the target site',
+    v:{tmean:-50, swing:60, arid:100, solar:60, rough:85, wind:null, dust:null}, na:['wind','dust'],
+    blurb:'Reference values for south-polar base candidates (Shackleton rim region) from LRO-Diviner: mean ≈ −50 °C on the illuminated rim, ~60 °C local swings, heavily cratered relief and high-availability polar light.'}
+};
+// value order: [tmean, swing, arid, solar, rough, wind, dust]
+const V = a => ({tmean:a[0], swing:a[1], arid:a[2], solar:a[3], rough:a[4], wind:a[5], dust:a[6]});
+// broad regions: [lat, lon, sigma°, weight, values]
+const REGIONS = [
+  [23,10,9,1,V([26,16,95,92,35,5.5,.5])],    // Sahara
+  [22,47,6,1,V([27,15,93,92,35,5,.5])],      // Arabia
+  [31,57,4,1,V([18,16,85,88,60,4.5,.35])],   // Iranian plateau
+  [27,71,3,1,V([26,13,75,85,25,4,.6])],      // Thar
+  [40,84,5,1,V([11,15,92,80,30,4,.45])],     // Taklamakan
+  [43,104,5,1,V([3,15,80,75,35,5,.3])],      // Gobi
+  [33,88,5,1,V([-2,15,60,85,80,6,.1])],      // Tibet
+  [29,84,2.5,1.2,V([-5,12,40,75,95,6,.08])], // Himalaya
+  [-25,132,8,1,V([22,15,85,90,20,4.5,.12])], // Australian interior
+  [-23,18,4,1,V([21,16,82,88,35,5,.15])],    // Kalahari / Namib
+  [-23,-69.5,3,1,V([14,18,95,90,55,4.5,.1])],// Atacama region
+  [-16,-69,4,.8,V([7,18,70,88,75,5,.06])],   // Altiplano
+  [37,-116,5,1,V([13,18,75,85,55,4.5,.1])],  // Great Basin / Mojave
+  [45,-112,5,.7,V([5,15,50,75,75,4.5,.08])], // Rockies
+  [46,10,2,1,V([4,8,15,60,85,4,.08])],       // Alps
+  [-45,-69,4,1,V([8,12,65,60,40,7,.06])],    // Patagonia
+  [73,-40,6,1,V([-25,12,80,32,15,5,.02])],   // Greenland
+  [75,-90,7,1,V([-17,10,60,30,45,5,.02])]    // Arctic Canada
+];
+const ANTARCTICA = V([-40,12,88,22,25,6,.01]);
+// t = terrain type for the 3D view; known = established analog (used to validate the scoring)
+const SITES = [
+ // ---- team list (Terraform Finder) ----
+ {id:'atacama', name:'Atacama Desert (Yungay)', country:'Chile', lat:-24.1, lon:-69.1, env:'Arid core desert', terrain:'hills', known:true, v:V([14,18,96,90,55,4.5,.10]),
+  why:'The driest warm desert on Earth; soils so sterile NASA used them to test Mars instruments. Long-standing analog for Mars surface chemistry.', breaks:'Far too warm; marine fog and a dense atmosphere.', use:'Validation site: life-detection and soil-chemistry instrument tests.'},
+ {id:'dryvalleys', name:'McMurdo Dry Valleys', country:'Antarctica', lat:-77.5, lon:163.0, env:'Polar desert', terrain:'valley', known:true, v:V([-20,15,90,25,70,6,.02]),
+  why:'Ice-free valleys scoured by katabatic winds. Cold-desert soils and endolithic life make it the classic cold-Mars analog.', breaks:'Summer meltwater streams and a thick atmosphere.', use:'Validation site for cold-desert Mars and rugged lunar terrain.'},
+ {id:'haughton', name:'Haughton Crater', country:'Canada', lat:75.4, lon:-89.7, env:'Impact crater, polar desert', terrain:'crater', known:true, v:V([-16,25,60,35,75,5.5,.03]),
+  why:'A 23 km impact crater in carbonate rock on Devon Island. Impact-shocked geology plus polar conditions built for lunar and Mars field tests.', breaks:'Permafrost with seasonal water; sedimentary target rock.', use:'Validation site for impact terrain and polar operations.'},
+ {id:'deathvalley', name:'Death Valley', country:'United States', lat:36.5, lon:-117.1, env:'Hot arid basin', terrain:'playa', known:true, v:V([25,20,92,92,50,4,.15]),
+  why:'Hottest recorded place on Earth with extreme dryness and alluvial fan geology; named in the challenge brief.', breaks:'Heat is the opposite of Mars; dense air.', use:'Validation site for playas and alluvial fans.'},
+ {id:'mojave', name:'Mojave Desert', country:'United States', lat:35.0, lon:-117.3, env:'Arid volcanic basin', terrain:'lava', known:true, v:V([19,20,88,91,45,4.5,.12]),
+  why:'Rover test beds such as the Lavic Lake lava field. Basaltic flows and dust mantles echo the Martian plains.', breaks:'Warm, with vegetation and a dense atmosphere.', use:'Rover mobility and navigation tests.'},
+ {id:'namib', name:'Namib Desert', country:'Namibia', lat:-24.6, lon:15.3, env:'Coastal fog desert', terrain:'dunes', known:false, v:V([19,16,90,88,40,5,.2]),
+  why:'Ancient dune sea fed only by coastal fog; studied for how sparse moisture sustains life in hyper-arid regolith.', breaks:'Fog brings regular moisture; quartz sand.', use:'Dune mobility and water-scarce biology studies.'},
+ {id:'lut', name:'Lut Desert (kaluts)', country:'Iran', lat:30.6, lon:59.0, env:'Hyper-arid yardang desert', terrain:'yardang', known:false, v:V([30,24,95,92,35,6,.4]),
+  why:'Hottest land-surface temperatures measured by satellite; wind-carved yardangs resemble eroded Martian terrain such as the Medusae Fossae Formation.', breaks:'Extreme heat, not cold; sedimentary, not volcanic.', use:'Compare yardang shapes with Mars and stress-test hardware in heat.'},
+ {id:'concordia', name:'Concordia Station (Dome C)', country:'Antarctica', lat:-75.1, lon:123.4, env:'High polar plateau', terrain:'plains', known:true, v:V([-54,20,88,20,25,3,.02]),
+  why:'One of the coldest inhabited places on Earth (−80 °C winters), used by ESA to study isolation and extreme cold for spaceflight.', breaks:'Ice sheet, not rock or regolith; months of darkness.', use:'Crew isolation studies and cold-soak hardware tests.'},
+ {id:'wadirum', name:'Wadi Rum', country:'Jordan', lat:29.6, lon:35.4, env:'Sandstone valley desert', terrain:'valley', known:false, v:V([22,18,85,90,65,4,.3]),
+  why:'The red "Valley of the Moon" used to film The Martian; iron-oxide-stained sandstone gives Mars-like colour and scenery.', breaks:'Visual match more than a geological one; sandstone, not basalt.', use:'Public outreach, spacesuit and imaging tests.'},
+ {id:'uyuni', name:'Salar de Uyuni', country:'Bolivia', lat:-20.1, lon:-66.8, env:'Salt flat, altiplano', terrain:'playa', known:false, v:V([10,18,80,85,15,5,.05]),
+  why:'Vast evaporite crust at 3,600 m; analog for Martian chloride salt deposits mapped by orbiters.', breaks:'Seasonal flooding; brine below the crust.', use:'Calibrate salt detection from orbit and on the ground.'},
+ {id:'ellesmere', name:'Ellesmere Island (FMARS)', country:'Canada', lat:79.4, lon:-91.0, env:'High-Arctic tundra', terrain:'hills', known:true, v:V([-18,25,62,32,70,5,.03]),
+  why:'Site of the Flashline Mars Arctic Research Station; long simulated missions run through the polar summer.', breaks:'Tundra plants, snow and seasonal water.', use:'Simulated-mission operations.'},
+ {id:'puna', name:'Puna de Atacama', country:'Argentina', lat:-25.4, lon:-67.7, env:'High-altitude desert', terrain:'mountain', known:false, v:V([6,20,88,88,72,6,.05]),
+  why:'Above 4,000 m with intense UV, thin dry air and volcanic lakes studied as proxies for early Mars watersheds.', breaks:'Air pressure still ~60% of sea level, far above Mars.', use:'UV-tolerant life and lake-sediment studies.'},
+ {id:'summit', name:'Greenland Summit Camp', country:'Greenland (Denmark)', lat:72.6, lon:-38.5, env:'Ice sheet summit', terrain:'plains', known:false, v:V([-32,20,82,30,15,5,.02]),
+  why:'Year-round camp on top of the ice sheet; cold, dry and logistically realistic for testing polar base operations.', breaks:'Snow surface, no rock or regolith.', use:'Polar base logistics and cold-power tests.'},
+ {id:'gilfkebir', name:'Gilf Kebir (Libyan Desert)', country:'Egypt', lat:23.0, lon:25.5, env:'Plateau hyper-desert', terrain:'hills', known:false, v:V([26,22,93,93,40,5,.35]),
+  why:'Remote sandstone plateau with some of Earth\'s most persistent clear skies; used for desert-operations trials.', breaks:'Hot; sandstone rather than basalt.', use:'Long-range traverse and solar-power trials.'},
+ {id:'hamada', name:'Hamada du Draa', country:'Morocco', lat:29.9, lon:-8.8, env:'Stony desert pavement', terrain:'plains', known:true, v:V([18,20,86,90,68,4.5,.3]),
+  why:'Rock pavement close in texture to Mars\' stony plains; an ESA spacesuit and rover field-test ground.', breaks:'Warm; occasional rain and plants.', use:'Rover and spacesuit field tests.'},
+ {id:'lunarcrater', name:'Lunar Crater Volcanic Field', country:'United States', lat:38.4, lon:-115.4, env:'Volcanic cinder field', terrain:'crater', known:true, v:V([8,22,85,88,62,4.5,.1]),
+  why:'A ~1 km wide maar crater and cinder cones in Nevada; Apollo crews trained on volcanic terrain like this.', breaks:'Volcanic, not impact, craters; vegetation.', use:'Crater-rim traverses and geology training.'},
+ {id:'maunakea', name:'Mauna Kea Summit', country:'United States', lat:19.8, lon:-155.5, env:'High-altitude volcanic shield', terrain:'mountain', known:true, v:V([2,10,70,80,80,6,.04]),
+  why:'4,200 m basaltic summit above the inversion layer; permafrost patches and strong solar access. Used for lunar ISRU and rover tests.', breaks:'Vegetation lower down; dense air; ocean climate.', use:'ISRU (oxygen from regolith) demonstrations.'},
+ {id:'cratersmoon', name:'Craters of the Moon', country:'United States', lat:43.4, lon:-113.6, env:'Basaltic lava field', terrain:'lava', known:true, v:V([7,24,78,84,66,4.5,.08]),
+  why:'Ragged basalt flows and lava tubes; Apollo astronauts trained here for the lunar surface.', breaks:'Seasonal snow and vegetation.', use:'Lava-tube and basalt-terrain operations.'},
+ {id:'nullarbor', name:'Nullarbor Plain', country:'Australia', lat:-31.0, lon:128.0, env:'Arid limestone plain', terrain:'plains', known:false, v:V([19,16,84,89,20,5,.1]),
+  why:'Flat arid karst plain with many recovered meteorites and caves: low relief but strong subsurface-analog value.', breaks:'Limestone, not basalt; dense air.', use:'Landing-zone flatness and cave-access tests.'},
+ {id:'ojos', name:'Ojos del Salado', country:'Chile / Argentina', lat:-27.1, lon:-68.6, env:'Highest volcano, cold desert', terrain:'mountain', known:false, v:V([-8,20,86,85,85,7,.05]),
+  why:'World\'s highest volcano (6,893 m) rising from the arid Puna; glacial and permafrost studies inform Mars periglacial work.', breaks:'Still roughly half sea-level pressure; snow.', use:'Periglacial landforms and high-altitude operations.'},
+ // ---- Gulf and other new candidates ----
+ {id:'zekreet', name:'Zekreet yardangs & Dohat Faishakh sabkha', country:'Qatar', lat:25.5, lon:50.85, env:'Yardangs and coastal sabkha', terrain:'yardang', known:false, v:V([27,12,90,88,45,5.5,.45]),
+  why:'Wind-carved limestone yardangs next to an evaporite sabkha with microbial mats. Shamal dust events load the air with dust much like a Martian regional storm.', breaks:'Carbonate rock, not volcanic ash; humid coastal air; groundwater below the sabkha crust.', use:'Test dust-tolerant hardware and practise biosignature sampling in salt crusts within an hour of Doha.'},
+ {id:'adaid', name:'Khor Al Adaid', country:'Qatar', lat:24.6, lon:51.35, env:'Inland sea, dunes and sabkha', terrain:'dunes', known:false, v:V([27,11,88,88,30,5.5,.45]),
+  why:'Inland sea ringed by barchan dunes and gypsum–halite sabkha: evaporites like the chlorides and sulfates mapped by orbiters on Mars.', breaks:'Seawater-fed, warm and wet just below the surface; quartz sand rather than basalt.', use:'Ground-truth evaporite spectra against EMIT, and test sand mobility for rovers.'},
+ {id:'rub', name:"Rub' al Khali & Wabar craters", country:'Saudi Arabia', lat:21.5, lon:50.47, env:'Sand sea with small impact craters', terrain:'dunescrater', known:false, v:V([28,18,98,93,30,5,.5]),
+  why:'Giant linear and star dunes beside small iron-meteorite craters with impact glass: aeolian plus impact processes in one place.', breaks:'Quartz sand vs. Martian basaltic sand; daytime heat far above Mars.', use:'Study how fresh small craters are buried by dunes, a key question for dating Martian surfaces.'},
+ {id:'khaybar', name:'Harrat Khaybar (Umm Jirsan lava tube)', country:'Saudi Arabia', lat:25.58, lon:39.6, env:'Young basalt field', terrain:'lava', known:false, v:V([24,18,92,92,75,4,.35]),
+  why:'Young basalt flows with a ~1.5 km lava tube and collapse skylights, rarely studied as a planetary analog.', breaks:'Lunar and Martian tubes may be far wider; this tube holds wind-blown sediment and animal life.', use:'Rehearse cave mapping, lidar navigation and comms loss for pit and lava-tube missions.'},
+ {id:'semail', name:'Semail ophiolite', country:'Oman', lat:23.0, lon:57.8, env:'Mantle rock mountains', terrain:'mountain', known:false, v:V([26,12,85,88,80,3.5,.4]),
+  why:'Olivine-rich mantle rock turning to serpentine and Mg-carbonate today, the same chemistry seen at Jezero and Nili Fossae.', breaks:'Liquid water and microbes are active now; much warmer than Mars.', use:'Calibrate carbonate and serpentine detection for Mars sample selection.'},
+ {id:'qaidam', name:'Qaidam Basin', country:'China', lat:37.5, lon:94.0, env:'Cold salt basin', terrain:'playa', known:false, v:V([3,16,94,88,30,5,.25]),
+  why:'Cold, hyper-arid, high-UV salt playas and yardangs at about 2,700 m.', breaks:'Atmosphere still about 100 times denser than on Mars.', use:'Study salt preservation of organics in a cold desert.'},
+ {id:'danakil', name:'Danakil Depression / Dallol', country:'Ethiopia', lat:14.24, lon:40.3, env:'Hypersaline hydrothermal basin', terrain:'playa', known:false, v:V([34,14,92,90,45,4,.3]),
+  why:'Acidic, hypersaline hot springs: a window on ancient Martian brines and the limits of life.', breaks:'Active heat and water; hazardous access.', use:'Test life-detection instruments on poly-extreme samples.'},
+ {id:'lsj', name:'Lac-Saint-Jean anorthosite', country:'Canada', lat:48.8, lon:-72.0, env:'Anorthosite massif', terrain:'hills', known:false, v:V([3,11,20,60,55,4,.08]),
+  why:'Plagioclase-rich anorthosite close to lunar highland crust chemistry.', breaks:'Wet, vegetated and weathered; no micrometeorite-made regolith.', use:'Source rock for lunar regolith simulants and ISRU tests.'},
+ {id:'svalbard', name:'Svalbard ridges', country:'Norway', lat:78.5, lon:16.0, env:'Polar mountains', terrain:'ridge', known:false, v:V([-6,6,55,35,80,5,.03]),
+  why:'Steep ridges under a low sun with long shadows, like lighting at the lunar south pole.', breaks:'Air scatters light; snow and ice instead of regolith.', use:'Practise navigation and camera work in low-angle light.'},
+ {id:'askja', name:'Askja', country:'Iceland', lat:65.05, lon:-16.75, env:'Basaltic volcanic highland', terrain:'lava', known:true, v:V([-1,8,45,45,70,6,.05]),
+  why:'Basaltic volcanic terrain used for Apollo astronaut training.', breaks:'Wet climate, glaciers.', use:'Validation site for basalt terrain.'}
+];
+for(const s of SITES){ s.est = {...s.v}; s.live = null; }
+
+</script>
+<script>
+/* ======================= APP ======================= */
+const state = { target:'mars', view:'map', rot:[-45,-18], spin:true, on:new Set(PARAMS.map(P=>P.k)), w:Object.fromEntries(PARAMS.map(P=>[P.k,P.weight])), detail:null };
+const RES = 0.75, NX = Math.round(360/RES), NY = Math.round(180/RES);
+const land = topojson.feature(WORLD, WORLD.objects.land);
+const countries = topojson.feature(WORLD, WORLD.objects.countries).features;
+const borders = topojson.mesh(WORLD, WORLD.objects.countries, (a,b)=>a!==b);
+const RAD = 180/Math.PI;
+const dist = (a,b) => d3.geoDistance(a,b)*RAD;
+
+// colour ramp
+const ramp = d3.interpolateRgbBasis(['#173452','#5c2a1f','#c4441f','#f06a2c','#ffb04f','#fff3c4']);
+let sLo=0.2, sHi=0.85;
+const normS = s => Math.max(0,Math.min(1,(s-sLo)/Math.max(0.05,sHi-sLo)));
+const colorFor = s => ramp(normS(s));
+(() => { const c=document.getElementById('legendBar').getContext('2d'); for(let x=0;x<160;x++){c.fillStyle=ramp(x/159);c.fillRect(x,0,1,10);} })();
+
+// ---------- land mask + per-cell values ----------
+const cells = [];
+(function buildMask(){
+  const cv = document.createElement('canvas'); cv.width=NX; cv.height=NY;
+  const ctx = cv.getContext('2d');
+  const pj = d3.geoEquirectangular().scale(NX/(2*Math.PI)).translate([NX/2,NY/2]);
+  ctx.fillStyle='#fff'; ctx.beginPath(); d3.geoPath(pj,ctx)(land); ctx.fill();
+  const px = ctx.getImageData(0,0,NX,NY).data;
+  for(let j=0;j<NY;j++) for(let i=0;i<NX;i++){
+    if(px[(j*NX+i)*4+3] < 128) continue;
+    cells.push({i,j,lon:-180+(i+0.5)*RES, lat:90-(j+0.5)*RES});
+  }
+})();
+const noise = (la,lo,k) => 0.5 + 0.25*Math.sin(la*0.21+lo*0.13+k)*Math.cos(lo*0.17-la*0.07+k*2) + 0.25*Math.sin(la*0.53-lo*0.29+k*3);
+function baseValues(la,lo){
+  const c=Math.cos(la/RAD);
+  return {tmean: 28-48*Math.pow(Math.abs(la)/90,1.8)+4*(noise(la,lo,1)-.5), swing: 9+5*noise(la,lo,2), arid: 30+25*noise(la,lo,3),
+    solar: 92*Math.pow(Math.max(.05,c),0.9)*(0.72+0.12*noise(la,lo,4)), rough: 35+25*noise(la,lo,5), wind: 3.5+2*noise(la,lo,6), dust: 0.08+0.1*noise(la,lo,7)};
+}
+// Blend: smooth background + broad regions + named sites (sites dominate within ~1.5°).
+function computeCellValues(){
+  for(const c of cells){
+    const p=[c.lon,c.lat], b=baseValues(c.lat,c.lon), W0=0.35, acc={}; let wsum=W0;
+    for(const P of PARAMS) acc[P.k]=W0*b[P.k];
+    const add=(vals,w)=>{ if(w<1e-4) return; wsum+=w; for(const P of PARAMS) acc[P.k]+=w*vals[P.k]; };
+    for(const [la,lo,sg,wt,vals] of REGIONS){ const d=dist(p,[lo,la]); add(vals, wt*Math.exp(-d*d/(2*sg*sg))); }
+    if(c.lat < -62) add(ANTARCTICA, 3*Math.min(1,(-62-c.lat)/4));
+    let near=null, nd=1e9;
+    for(const s of SITES){ const d=dist(p,[s.lon,s.lat]); if(d<nd){nd=d;near=s;} add(s.v, 8*Math.exp(-d*d/(2*0.9*0.9))); }
+    c.v={}; for(const P of PARAMS) c.v[P.k]=acc[P.k]/wsum;
+    c.site = nd<1.6?near:null;
+    c.sim = {mars:simOf(c.v,'mars'), moon:simOf(c.v,'moon')};
+  }
+  for(const s of SITES) s.sim = {mars:simOf(s.v,'mars'), moon:simOf(s.v,'moon')};
+}
+// Team scoring: linear similarity, 100% at an exact match, 0% once the gap reaches the factor's scale.
+function simOf(v,t){
+  const T=TARGETS[t], out={};
+  for(const P of PARAMS){
+    if(T.na.includes(P.k)) {out[P.k]=null; continue;}
+    out[P.k]=Math.max(0, 1-Math.abs(v[P.k]-T.v[P.k])/P.scale);
+  }
+  return out;
+}
+computeCellValues();
+const cellIndex = new Map(cells.map(c=>[c.j*NX+c.i,c]));
+function activeParams(){ const na=TARGETS[state.target].na; return PARAMS.filter(P=>state.on.has(P.k)&&!na.includes(P.k)); }
+function overall(sim){ const ap=activeParams(); const tw=d3.sum(ap,P=>state.w[P.k]); if(!ap.length) return null; if(!tw) return d3.mean(ap,P=>sim[P.k]); return d3.sum(ap,P=>sim[P.k]*state.w[P.k])/tw; }
+
+// ---------- map / globe drawing ----------
+const wrap = document.getElementById('mapWrap');
+const baseSvg = d3.select('#base'), overlay = d3.select('#overlay');
+const heat = document.getElementById('heat');
+let proj, W, H, dpr = Math.max(1, window.devicePixelRatio||1), order = [];
+const graticule = d3.geoGraticule10();
+
+function makeProj(){
+  if(state.view==='globe') return d3.geoOrthographic().fitExtent([[12,12],[W-12,H-12]],{type:'Sphere'}).rotate(state.rot).clipAngle(90);
+  return d3.geoNaturalEarth1().fitExtent([[8,8],[W-8,H-8]], {type:'Sphere'});
+}
+function visible(lon,lat){ if(state.view!=='globe') return true; return d3.geoDistance([lon,lat],[-state.rot[0],-state.rot[1]]) < Math.PI/2 - 0.01; }
+function layout(){
+  W = wrap.clientWidth; H = wrap.clientHeight;
+  baseSvg.attr('width',W).attr('height',H); overlay.attr('width',W).attr('height',H);
+  heat.width=W*dpr; heat.height=H*dpr; heat.style.width=W+'px'; heat.style.height=H+'px';
+  renderAll();
+}
+function renderAll(){
+  proj = makeProj();
+  const path = d3.geoPath(proj);
+  baseSvg.html('');
+  if(state.view==='globe'){
+    baseSvg.append('path').datum({type:'Sphere'}).attr('d',path).attr('fill','#04162a').attr('stroke','#2a4f74').attr('stroke-width',1.2);
+    baseSvg.append('path').datum(graticule).attr('d',path).attr('fill','none').attr('stroke','#0e2a44').attr('stroke-width',.6);
+  }
+  baseSvg.append('path').datum(land).attr('d',path).attr('fill','#0e2740');
+  baseSvg.append('path').datum(borders).attr('d',path).attr('fill','none').attr('stroke','#1c3b5a').attr('stroke-width',0.6);
+  drawHeat(); drawSites(); placeMarker();
+}
+function recomputeScores(){
+  order = cells.map(c=>[c,overall(c.sim[state.target])]).sort((a,b)=>(a[1]??0)-(b[1]??0));
+  const vals = order.map(x=>x[1]).filter(x=>x!=null).concat(SITES.map(s=>overall(s.sim[state.target])).filter(x=>x!=null)).sort(d3.ascending);
+  if(vals.length){ sLo=d3.quantileSorted(vals,0.02); sHi=Math.max(sLo+0.05, vals[vals.length-1]); }
+  d3.select('#legLo').text(Math.round(sLo*100)+'%'); d3.select('#legHi').text(Math.round(sHi*100)+'% match');
+  renderTopList();
+}
+function drawHeat(){
+  const ctx = heat.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const cellPx = state.view==='globe' ? proj.scale()*RES/RAD*0.95 : (W/360)*RES*0.95;
+  for(const [c,s] of order){
+    if(!visible(c.lon,c.lat)) continue;
+    const xy = proj([c.lon,c.lat]); if(!xy) continue;
+    if(s==null){ ctx.fillStyle='#2a3a4a'; ctx.globalAlpha=.5; }
+    else { const n=normS(s); ctx.fillStyle=ramp(n); ctx.globalAlpha = n<0.15 ? 0.55 : 1; }
+    const r = s==null ? cellPx*0.3 : cellPx*(0.28 + 0.42*normS(s));
+    ctx.beginPath(); ctx.arc(xy[0],xy[1],r,0,2*Math.PI); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+function drawSites(){
+  overlay.selectAll('g.site').remove();
+  const g = overlay.selectAll('g.site').data(SITES.filter(s=>visible(s.lon,s.lat))).join('g').attr('class','site')
+    .attr('transform',s=>{const p=proj([s.lon,s.lat]);return `translate(${p[0]},${p[1]})`;}).style('pointer-events','none');
+  g.append('circle').attr('r',5.5).attr('fill','none').attr('stroke',s=>s.known?'#9fb3c8':'#fff3c4').attr('stroke-width',1.2).attr('stroke-dasharray',s=>s.known?'2 2':null);
+  if(overlay.select('#marker').empty()) overlay.append('g').attr('id','marker').style('display','none').html('<path d="M-9 -9L9 9M9 -9L-9 9" stroke="#fff3c4" stroke-width="3"/>');
+  overlay.select('#marker').raise();
+}
+function selLL(sel){ return sel.site? [sel.site.lon,sel.site.lat] : [sel.cell.lon,sel.cell.lat]; }
+function placeMarker(){
+  const m = d3.select('#marker'); if(!state.detail){ m.style('display','none'); return; }
+  const ll = selLL(state.detail); if(!visible(ll[0],ll[1])){ m.style('display','none'); return; }
+  const p = proj(ll); m.style('display',null).attr('transform',`translate(${p[0]},${p[1]}) scale(4)`);
+}
+
+// ---------- globe rotation ----------
+let spinRaf=null, lastT=0;
+function spinLoop(t){
+  if(state.view!=='globe' || !state.spin){ spinRaf=null; return; }
+  if(t-lastT > 40){ state.rot[0]+=0.6; renderAll(); lastT=t; }
+  spinRaf=requestAnimationFrame(spinLoop);
+}
+function startSpin(){ if(!spinRaf && state.view==='globe' && state.spin) spinRaf=requestAnimationFrame(spinLoop); }
+let drag=null, dragged=false;
+wrap.addEventListener('pointerdown',e=>{ if(state.detail||state.view!=='globe') return; drag={x:e.clientX,y:e.clientY,rot:[...state.rot]}; dragged=false; });
+addEventListener('pointermove',e=>{
+  if(!drag) return;
+  const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+  if(Math.abs(dx)+Math.abs(dy)>4){ dragged=true; state.spin=false; tip.style.display='none'; }
+  if(dragged){ const k=90/proj.scale(); state.rot=[drag.rot[0]+dx*k*1.6, Math.max(-75,Math.min(75,drag.rot[1]-dy*k*1.6))]; renderAll(); }
+});
+addEventListener('pointerup',()=>{ drag=null; });
+wrap.addEventListener('mouseenter',()=>{ state.spin=false; });
+
+// ---------- rail ----------
+const rail = d3.select('#rail');
+for(const P of PARAMS){
+  const b = rail.append('button').attr('class','pbtn').attr('data-k',P.k).attr('aria-pressed','true').attr('title',P.desc);
+  b.append('span').attr('class','dot').html(`<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[P.k]}</svg>`);
+  b.append('span').attr('class','lbl').text(P.name);
+  b.on('click',()=>{ state.on.has(P.k)?state.on.delete(P.k):state.on.add(P.k); syncRail(); if(!document.getElementById('weightsPanel').hidden) renderWeights(); recomputeScores(); drawHeat(); if(state.detail) openDetail(state.detail,true); });
+}
+rail.append('div').attr('id','railNote');
+rail.append('button').attr('id','weightsBtn').attr('aria-expanded','false').html('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 21h14M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z"/></svg>Adjust weights').on('click',()=>{ const p=document.getElementById('weightsPanel'); const open=p.hidden; p.hidden=!open; document.getElementById('weightsBtn').setAttribute('aria-expanded',String(open)); if(open) renderWeights(); });
+function renderWeights(){
+  const ap=activeParams(), tw=d3.sum(ap,P=>state.w[P.k])||1;
+  const box=d3.select('#weightsList').html('');
+  for(const P of ap){
+    const row=box.append('div').attr('class','wrow');
+    row.append('div').attr('class','wl').html(`<span>${P.short}</span><b>${Math.round(state.w[P.k]/tw*100)}%</b>`);
+    row.append('input').attr('type','range').attr('min',0).attr('max',50).attr('value',state.w[P.k]).attr('aria-label',`Weight for ${P.short}`)
+      .on('input',function(){ state.w[P.k]=+this.value; const t2=d3.sum(activeParams(),Q=>state.w[Q.k])||1; box.selectAll('.wrow').each(function(_,i){ const Q=activeParams()[i]; d3.select(this).select('b').text(Math.round(state.w[Q.k]/t2*100)+'%'); }); recomputeScores(); drawHeat(); if(state.detail) openDetail(state.detail,true); });
+  }
+  if(!ap.length) box.append('div').attr('class','wl').text('Turn on at least one factor.');
+}
+d3.select('#wReset').on('click',()=>{ for(const P of PARAMS) state.w[P.k]=P.weight; renderWeights(); recomputeScores(); drawHeat(); if(state.detail) openDetail(state.detail,true); });
+d3.select('#wClose').on('click',()=>{ document.getElementById('weightsPanel').hidden=true; document.getElementById('weightsBtn').setAttribute('aria-expanded','false'); });
+function syncRail(){
+  const na = TARGETS[state.target].na;
+  rail.selectAll('.pbtn').each(function(){ const k=this.dataset.k, dis=na.includes(k);
+    this.disabled=dis; this.setAttribute('aria-pressed', String(!dis && state.on.has(k))); });
+  const n = activeParams().length;
+  d3.select('#railNote').text(na.length ? 'Wind and dust are off for the Moon: it has no wind.' : (n? `${n} of ${PARAMS.length} factors on` : 'Pick at least one factor'));
+  if(!document.getElementById('weightsPanel').hidden) renderWeights();
+}
+
+// ---------- toggles ----------
+d3.selectAll('#targetToggle button').on('click',function(){ setTarget(this.dataset.t); });
+function setTarget(t){
+  state.target=t;
+  d3.selectAll('#targetToggle button').attr('aria-pressed',function(){return String(this.dataset.t===t);});
+  d3.select('#targetSub').text(TARGETS[t].sub);
+  syncRail(); recomputeScores(); drawHeat(); if(state.detail) openDetail(state.detail,true);
+}
+d3.selectAll('#viewToggle button').on('click',function(){ setView(this.dataset.v); });
+function setView(v){
+  state.view=v;
+  d3.selectAll('#viewToggle button').attr('aria-pressed',function(){return String(this.dataset.v===v);});
+  if(v==='globe'){ state.spin = !state.detail; }
+  renderAll(); startSpin();
+}
+
+// ---------- top list ----------
+function renderTopList(){
+  const ranked = SITES.map(s=>[s,overall(s.sim[state.target])]).filter(x=>x[1]!=null).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const ol = d3.select('#topList').html('');
+  for(const [s,v] of ranked){ ol.append('li').html(`<div class="r"><span>${s.name.split(' (')[0]}${s.known?' <small style="color:#9fb3c8">(known)</small>':''}</span><b>${Math.round(v*100)}%</b></div>`).on('click',()=>openDetail({site:s})); }
+}
+
+// ---------- hover ----------
+const tip = document.getElementById('tip');
+function cellAt(mx,my){
+  if(state.view==='globe'){ const [tx,ty]=proj.translate(); if(Math.hypot(mx-tx,my-ty)>proj.scale()) return null; }
+  const ll = proj.invert([mx,my]); if(!ll||isNaN(ll[0])) return null;
+  const i=Math.floor((ll[0]+180)/RES), j=Math.floor((90-ll[1])/RES);
+  return cellIndex.get(j*NX+i) || null;
+}
+const countryCache = new Map();
+function countryOf(c){
+  const key=c.j*NX+c.i; if(countryCache.has(key)) return countryCache.get(key);
+  const f = countries.find(f=>d3.geoContains(f,[c.lon,c.lat])); const n = f? f.properties.name : null;
+  countryCache.set(key,n); return n;
+}
+const fmtLL = (la,lo)=>`${Math.abs(la).toFixed(1)}°${la>=0?'N':'S'}, ${Math.abs(lo).toFixed(1)}°${lo>=0?'E':'W'}`;
+function placeName(c){
+  if(c.site) return `Near ${c.site.name}, ${c.site.country}`;
+  const n = countryOf(c); return `${n?n+' · ':''}${fmtLL(c.lat,c.lon)}`;
+}
+wrap.addEventListener('mousemove',e=>{
+  if(state.detail || dragged&&drag){ tip.style.display='none'; return; }
+  const r=wrap.getBoundingClientRect(), c=cellAt(e.clientX-r.left,e.clientY-r.top);
+  if(!c){ tip.style.display='none'; wrap.style.cursor= state.view==='globe'?'grab':'default'; return; }
+  wrap.style.cursor='pointer';
+  const sim=c.sim[state.target], o=overall(sim), T=TARGETS[state.target];
+  const rows = activeParams().map(P=>`<div class="row"><span>${P.short}</span><span class="bar"><i style="width:${Math.round(sim[P.k]*100)}%"></i></span><span>${Math.round(sim[P.k]*100)}%</span></div>`).join('');
+  tip.innerHTML = `<div class="hd"><span>${T.label==='MARS'?'Mars':'Moon'} match</span><span>${o==null?'—':Math.round(o*100)+'%'}</span></div>
+    <div class="loc">${placeName(c)}</div><div class="rows">${rows||'<span style="color:#9fb3c8">No parameters selected</span>'}</div><div class="foot">Click for the full summary${state.view==='globe'?' · drag to rotate':''}</div>`;
+  tip.style.display='block';
+  const tw=tip.offsetWidth, th=tip.offsetHeight; let x=e.clientX+16, y=e.clientY-th-12;
+  if(x+tw>innerWidth-8) x=e.clientX-tw-16; if(y<70) y=e.clientY+18;
+  tip.style.left=x+'px'; tip.style.top=y+'px';
+});
+wrap.addEventListener('mouseleave',()=>{tip.style.display='none';});
+wrap.addEventListener('click',e=>{
+  if(dragged){ dragged=false; return; }
+  if(state.detail){ closeDetail(); return; }
+  const r=wrap.getBoundingClientRect(), c=cellAt(e.clientX-r.left,e.clientY-r.top);
+  if(c) openDetail(c.site?{site:c.site}:{cell:c});
+});
+
+// ---------- detail ----------
+function miniTransform(){
+  const s=0.24, r=wrap.getBoundingClientRect();
+  const dx = (innerWidth - 24) - (r.right);
+  return `translate(${dx}px, 10px) scale(${s})`;
+}
+function terrainKind(sel){
+  if(sel.site) return sel.site.terrain;
+  const v=sel.cell.v; return v.rough>72?'mountain': v.rough>52?'hills': v.dust>0.4?'dunes':'plains';
+}
+function openDetail(sel, refresh){
+  const isNew = !state.detail || state.detail!==sel;
+  state.detail = sel; tip.style.display='none'; document.body.classList.add('detailing'); state.spin=false;
+  const T=TARGETS[state.target];
+  const isSite=!!sel.site, s=sel.site, c=sel.cell;
+  const lat=isSite?s.lat:c.lat, lon=isSite?s.lon:c.lon, v=isSite?s.v:c.v, sim=isSite?s.sim[state.target]:c.sim[state.target];
+  const name = isSite? s.name : (countryOf(c)||'Unnamed area');
+  const o=overall(sim);
+  if(state.view==='globe' && !refresh){ state.rot=[-lon, -lat]; renderAll(); } else placeMarker();
+  if(!refresh){ wrap.classList.add('mini'); wrap.style.transform=miniTransform(); }
+  document.getElementById('detail').classList.add('show');
+  const mc=document.getElementById('miniCap');
+  mc.style.left=(innerWidth-24-W*0.24)+'px'; mc.style.top=(64+10+H*0.24+6)+'px'; setTimeout(()=>{ if(state.detail) mc.style.display='block'; }, refresh?0:550);
+
+  d3.select('#dTitle').text(isSite? `${name}, ${s.country}` : name);
+  d3.select('#dSub').html(`${fmtLL(lat,lon)}${isSite?' · '+s.env:''} ${isSite?(s.live?`<span class="badge live">NASA POWER LIVE · ${new Date(s.live.fetchedAt).toLocaleDateString()}</span>`:'<span class="badge known">PUBLISHED ESTIMATES</span>'):''} ${isSite?(s.known?'<span class="badge known">KNOWN ANALOG · VALIDATION</span>':'<span class="badge">NEW CANDIDATE</span>'):'<span class="badge known">GRID CELL · 0.75°</span>'} <span>Compared with ${T.label==='MARS'?'Mars':'the Moon'}: ${T.sub.replace('vs. ','')}</span>`);
+  d3.select('#mTtl').text(`Similarities matched · ${activeParams().length} of ${PARAMS.length} factors · weighted`);
+  d3.select('#mBig').text(o==null?'—':`${Math.round(o*100)}%`);
+  const rows = PARAMS.map(P=>{
+    const na=T.na.includes(P.k), off=na||!state.on.has(P.k);
+    const tv = na? 'n/a (no atmosphere)' : P.fmt(T.v[P.k]);
+    const src = isSite ? (s.live && s.live[P.k]!=null ? '<span class="src live">POWER</span>' : '<span class="src">est.</span>') : '<span class="src">interp.</span>';
+    const sv = na? null : sim[P.k];
+    return `<div class="prow ${off?'off':''}"><div class="nm"><span>${P.name}${off&&!na?' · off':''}${!off?` · w ${state.w[P.k]}`:''}</span><span>${sv==null?'—':Math.round(sv*100)+'%'}</span></div>
+      <div class="vals">Earth: ${P.fmt(v[P.k])} ${src} &nbsp;·&nbsp; ${T.label==='MARS'?'Mars':'Moon'}: ${tv}</div>
+      <div class="sb"><i style="width:${sv==null?0:Math.round(sv*100)}%"></i></div></div>`;}).join('');
+  d3.select('#pRows').html(rows);
+  drawRadar(sim);
+  d3.select('#capT').text(T.label);
+  document.getElementById('frameT').className='frame '+T.frame;
+  d3.select('#imgE').text(`Landsat 9 / Sentinel-2 scene · ${isSite?s.name:fmtLL(lat,lon)}`);
+  d3.select('#imgT').text(T.img);
+  // 3D terrain
+  const kind = terrainKind(sel), seed = isSite? SITES.indexOf(s)+11 : (c.i*7+c.j)%997;
+  d3.select('#t3e').text(`${isSite?s.name.split(' (')[0]:name} · ${TERRAIN_LABEL[kind]}`);
+  d3.select('#t3tCap').text(`${T.label} · ${state.target==='mars'?'crater floor with delta scarp':'cratered polar ridge'}`);
+  show3D(kind, seed, v.rough/40, state.target);
+  // explanation
+  const ap=activeParams().map(P=>[P,sim[P.k]]).sort((a,b)=>b[1]-a[1]);
+  const strong=ap.filter(x=>x[1]>=0.6).map(x=>x[0].name.toLowerCase()), weak=ap.filter(x=>x[1]<0.4).map(x=>x[0].name.toLowerCase());
+  const auto = `<h4>SCORE READOUT</h4><p>${strong.length?`Strong match on ${strong.join(', ')}.`:'No parameter matches strongly.'} ${weak.length?`Weak on ${weak.join(', ')}.`:''}</p>`;
+  const body = isSite ? `<h4>WHY IT MATCHES</h4><p>${s.why}</p><h4>WHERE IT BREAKS</h4><p>${s.breaks}</p><h4>HOW TO USE IT</h4><p>${s.use}</p>` :
+    `<h4>WHY IT MATCHES</h4><p>This cell has no named site yet. Its values are interpolated from nearby sites and regional estimates; zoom in at 30 m and check geology before treating it as a candidate.</p>`;
+  d3.select('#explain').html(auto+body+`<p class="limits">No place on Earth reproduces ${T.label==='MARS'?'Mars’s thin CO₂ atmosphere (~0.6% of Earth’s pressure), 0.38 g gravity':'the lunar vacuum, 0.17 g gravity'} or its radiation environment. </p><h4>TARGET REFERENCE</h4><p>${T.blurb}</p><p class="limits">Earth values: NASA POWER climatology when fetched live, otherwise published estimates. Roughness is an estimate index; the map between named sites is interpolated, and the 3D terrain is a stand-in until DEM tiles are added.</p>`);
+  if(isNew && !refresh) document.getElementById('detail').scrollTop=0;
+}
+function closeDetail(){
+  state.detail=null; document.body.classList.remove('detailing'); wrap.classList.remove('mini'); wrap.style.transform=''; wrap.style.opacity=1; wrap.style.pointerEvents=''; document.getElementById('miniCap').style.visibility='';
+  document.getElementById('detail').classList.remove('show'); document.getElementById('miniCap').style.display='none';
+  placeMarker(); stop3D();
+}
+document.getElementById('back').addEventListener('click',closeDetail);
+document.getElementById('detail').addEventListener('scroll',function(){ const hide=this.scrollTop>140; wrap.style.opacity=hide?0:1; wrap.style.pointerEvents=hide?'none':''; document.getElementById('miniCap').style.visibility=hide?'hidden':''; });
+addEventListener('keydown',e=>{ if(e.key!=='Escape') return; const m=document.getElementById('methodPanel'); if(!m.hidden){ m.hidden=true; return; } if(state.detail) closeDetail(); });
+
+function drawRadar(sim){
+  const svg=d3.select('#radar').html(''), cx=105, cy=105, R=72, n=PARAMS.length;
+  const ang=i=>-Math.PI/2+i*2*Math.PI/n, pt=(i,r)=>[cx+r*Math.cos(ang(i)), cy+r*Math.sin(ang(i))];
+  for(const f of [0.25,0.5,0.75,1]) svg.append('polygon').attr('points',PARAMS.map((_,i)=>pt(i,R*f).join(',')).join(' ')).attr('fill','none').attr('stroke','rgba(232,184,109,.25)');
+  PARAMS.forEach((P,i)=>{ const [x,y]=pt(i,R); svg.append('line').attr('x1',cx).attr('y1',cy).attr('x2',x).attr('y2',y).attr('stroke','rgba(232,184,109,.25)');
+    const [lx,ly]=pt(i,R+16); svg.append('text').attr('x',lx).attr('y',ly+3).attr('text-anchor',Math.abs(lx-cx)<5?'middle':(lx>cx?'start':'end')).attr('font-size',9).attr('fill',state.on.has(P.k)&&sim[P.k]!=null?'#e8b86d':'rgba(232,184,109,.35)').attr('font-family','IBM Plex Mono, monospace').text(({tmean:'TEMP',swing:'SWING',arid:'ARID',solar:'SOLAR',rough:'ROUGH',wind:'WIND',dust:'DUST'})[P.k]); });
+  const pts=PARAMS.map((P,i)=>pt(i,R*((sim[P.k]??0))));
+  svg.append('polygon').attr('points',pts.map(p=>p.join(',')).join(' ')).attr('fill','#e0532b').attr('fill-opacity',.35).attr('stroke','#e0532b').attr('stroke-width',1.5);
+  PARAMS.forEach((P,i)=>{ if(state.on.has(P.k)&&sim[P.k]!=null) svg.append('circle').attr('cx',pts[i][0]).attr('cy',pts[i][1]).attr('r',3).attr('fill','#fff3c4'); });
+}
+
+/* ======================= 3D TERRAIN (placeholder heightmaps) =======================
+   Each tile is 2 km x 2 km. Swap the generator for real DEM tiles:
+   Earth = NASADEM / Copernicus 30 m, Mars = HiRISE/CTX DTM or MOLA, Moon = LOLA.
+==================================================================================== */
+function hash(i,j,s){ let h=(i*374761393 + j*668265263 + s*982451653)|0; h=Math.imul(h^(h>>>13),1274126177); return ((h^(h>>>16))>>>0)/4294967295; }
+function vnoise(x,y,s){ const i=Math.floor(x), j=Math.floor(y), fx=x-i, fy=y-j, u=fx*fx*(3-2*fx), w=fy*fy*(3-2*fy);
+  const a=hash(i,j,s), b=hash(i+1,j,s), c=hash(i,j+1,s), d=hash(i+1,j+1,s); return a+(b-a)*u+(c-a)*w+(a-b-c+d)*u*w; }
+function fbm(x,y,s,oct=5){ let t=0,a=0.5,f=1; for(let o=0;o<oct;o++){ t+=a*(vnoise(x*f,y*f,s+o)*2-1); f*=2; a*=0.5; } return t; }
+function ridged(x,y,s,oct=5){ let t=0,a=0.5,f=1; for(let o=0;o<oct;o++){ t+=a*(1-Math.abs(vnoise(x*f,y*f,s+o)*2-1)); f*=2; a*=0.5; } return t; }
+function crater(x,y,cx,cy,r,d){ const q=Math.hypot(x-cx,y-cy)/r; return (q<1? -d*(1-q*q) : 0) + 0.35*d*Math.exp(-(((q-1)/0.3)**2)); }
+const TERRAIN_LABEL = {plains:'plains', dunes:'dune field', yardang:'yardang field', lava:'lava flow with collapse pits', mountain:'mountain terrain', ridge:'steep ridge', valley:'glacial valley', playa:'salt flat / playa', hills:'rolling hills', crater:'impact crater', dunescrater:'dunes with small craters'};
+const GEN = {
+  plains:(x,y,s,r)=> fbm(x*3,y*3,s)*8*r,
+  dunes:(x,y,s)=>{ const t=(x*0.8+y*0.6)*7+fbm(x*1.5,y*1.5,s)*1.2; return 22*Math.pow(Math.abs(Math.sin(t)),1.5)+fbm(x*6,y*6,s+9)*2; },
+  yardang:(x,y,s,r)=>{ const t=x*9+fbm(x*2,y*2,s)*1.2; const m=0.5+0.5*vnoise(x*1.5,y*6,s+3); return 30*Math.pow(Math.max(0,Math.sin(t)),3)*m*(0.6+r*0.3)+fbm(x*8,y*8,s+5)*2; },
+  lava:(x,y,s,r)=>{ let h=fbm(x*6,y*6,s)*10*r+fbm(x*2,y*2,s+2)*15; for(let k=0;k<5;k++) h+=crater(x,y,-0.8+k*0.4,-0.3+0.15*Math.sin(k*1.7),0.09,14); return h; },
+  mountain:(x,y,s)=> ridged(x*1.6,y*1.6,s)*420+fbm(x*8,y*8,s+4)*10,
+  ridge:(x,y,s)=>{ const d=(x-y)/1.414; return 380*Math.exp(-d*d/0.25)+ridged(x*2,y*2,s)*90; },
+  valley:(x,y,s)=> 320*Math.pow(Math.abs(x+0.15*fbm(0,y*2,s)),1.6)+ridged(x*3,y*3,s)*60,
+  playa:(x,y,s)=>{ const e=Math.max(0,Math.hypot(x,y)-0.6); return 60*e*e+fbm(x*10,y*10,s)*0.8; },
+  hills:(x,y,s,r)=> fbm(x*2.5,y*2.5,s)*70*(0.5+r*0.4),
+  crater:(x,y,s)=> crater(x,y,0.05,0,0.75,120)+fbm(x*4,y*4,s)*12,
+  dunescrater:(x,y,s,r)=> GEN.dunes(x,y,s,r)*0.8+crater(x,y,0.3,-0.2,0.18,20),
+  mars:(x,y,s)=>{ let h=fbm(x*3,y*3,s)*5+35/(1+Math.exp(-(x*0.9-y*0.4+0.25*Math.sin(y*3)-0.2)*14));
+    for(let k=0;k<14;k++) h+=crater(x,y,hash(k,1,s)*2-1,hash(k,2,s)*2-1,0.03+0.09*hash(k,3,s),8+20*hash(k,4,s)); return h; },
+  moon:(x,y,s)=>{ let h=GEN.ridge(x,y,s)*1.1; for(let k=0;k<22;k++) h+=crater(x,y,hash(k,1,s)*2-1,hash(k,2,s)*2-1,0.03+0.14*hash(k,3,s),10+60*hash(k,4,s)); return h; }
+};
+const PAL = {earth:['#3d2615','#8a5530','#c98a50','#f0cf9a'], mars:['#3a1a0e','#8a3f22','#c26a3c','#e7ae7c'], moon:['#2a2a2a','#5e5e5e','#9a9a9a','#dcdcdc']};
+const EXAG = 2.5;
+const T3 = {views:null, theta:0.9, phi:0.95, R:3.9, auto:true, raf:null, drag:null};
+function make3DView(canvas){
+  const r=new THREE.WebGLRenderer({canvas, antialias:true, alpha:true}); r.setPixelRatio(Math.min(2,devicePixelRatio||1));
+  const scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(38,1,0.01,50);
+  scene.add(new THREE.AmbientLight(0xffffff,0.5));
+  const sun=new THREE.DirectionalLight(0xfff1dd,1.05); sun.position.set(-2,2.4,1.2); scene.add(sun);
+  const edge=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[-1,0,-1],[1,0,-1],[1,0,1],[-1,0,1]].map(p=>new THREE.Vector3(...p))), new THREE.LineBasicMaterial({color:0x2a4f74}));
+  scene.add(edge);
+  return {r,scene,cam,canvas,mesh:null};
+}
+function setTerrain(view, fn, seed, rough, pal){
+  if(view.mesh){ view.scene.remove(view.mesh); view.mesh.geometry.dispose(); view.mesh.material.dispose(); }
+  const N=150, g=new THREE.PlaneGeometry(2,2,N,N); g.rotateX(-Math.PI/2);
+  const pos=g.attributes.position, hs=new Float32Array(pos.count); let lo=1e9, hi=-1e9;
+  for(let i=0;i<pos.count;i++){ const h=fn(pos.getX(i),pos.getZ(i),seed,rough); hs[i]=h; if(h<lo)lo=h; if(h>hi)hi=h; }
+  const cols=new Float32Array(pos.count*3), rp=d3.interpolateRgbBasis(pal);
+  for(let i=0;i<pos.count;i++){ pos.setY(i,(hs[i]-lo)/1000*EXAG); const c=d3.color(rp((hs[i]-lo)/Math.max(1,hi-lo))); cols[i*3]=c.r/255; cols[i*3+1]=c.g/255; cols[i*3+2]=c.b/255; }
+  g.setAttribute('color',new THREE.BufferAttribute(cols,3)); g.computeVertexNormals();
+  view.mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.95, metalness:0, side:THREE.DoubleSide}));
+  view.scene.add(view.mesh);
+  return hi-lo;
+}
+function show3D(kind, seed, rough, target){
+  const note=document.getElementById('t3note');
+  if(typeof THREE==='undefined'){ note.textContent='3D view unavailable in this browser.'; return; }
+  try{
+    if(!T3.views) T3.views=[make3DView(document.getElementById('t3a')), make3DView(document.getElementById('t3b'))];
+    const reE=setTerrain(T3.views[0], GEN[kind], seed, rough, PAL.earth);
+    const reT=setTerrain(T3.views[1], GEN[target], 7, 1, PAL[target]);
+    note.innerHTML=`Relief across the tile: Earth <b>${Math.round(reE)} m</b> · ${target==='mars'?'Mars':'Moon'} <b>${Math.round(reT)} m</b>. Both tiles 2 × 2 km, heights ×${EXAG}. <span style="color:#9fb3c8">Sample terrain from placeholder slope and roughness — replace with NASADEM and ${target==='mars'?'HiRISE/CTX or MOLA':'LOLA'} tiles.</span>`;
+    T3.auto=true; if(!T3.raf) T3.raf=requestAnimationFrame(tick3D);
+  }catch(err){ note.textContent='3D view unavailable (WebGL is off in this browser).'; }
+}
+function stop3D(){ if(T3.raf){ cancelAnimationFrame(T3.raf); T3.raf=null; } }
+function tick3D(){
+  if(!state.detail || !T3.views){ T3.raf=null; return; }
+  if(T3.auto) T3.theta+=0.0035;
+  const R=T3.R, pos=new THREE.Vector3(R*Math.sin(T3.phi)*Math.cos(T3.theta), R*Math.cos(T3.phi), R*Math.sin(T3.phi)*Math.sin(T3.theta));
+  for(const v of T3.views){
+    const w=v.canvas.clientWidth, h=v.canvas.clientHeight;
+    if(v.canvas.width!==Math.round(w*v.r.getPixelRatio())||v.canvas.height!==Math.round(h*v.r.getPixelRatio())){ v.r.setSize(w,h,false); v.cam.aspect=w/h; v.cam.updateProjectionMatrix(); }
+    v.cam.position.copy(pos); v.cam.lookAt(0,0.3,0); v.r.render(v.scene,v.cam);
+  }
+  T3.raf=requestAnimationFrame(tick3D);
+}
+for(const id of ['t3a','t3b']){
+  const cv=document.getElementById(id);
+  cv.addEventListener('pointerdown',e=>{ T3.drag={x:e.clientX,y:e.clientY,t:T3.theta,p:T3.phi}; T3.auto=false; cv.setPointerCapture(e.pointerId); cv.style.cursor='grabbing'; });
+  cv.addEventListener('pointermove',e=>{ if(!T3.drag) return; T3.theta=T3.drag.t+(e.clientX-T3.drag.x)*0.01; T3.phi=Math.max(0.2,Math.min(1.4,T3.drag.p-(e.clientY-T3.drag.y)*0.01)); });
+  cv.addEventListener('pointerup',()=>{ T3.drag=null; cv.style.cursor='grab'; });
+  cv.addEventListener('wheel',e=>{ e.preventDefault(); T3.R=Math.max(1.6,Math.min(5,T3.R*(1+Math.sign(e.deltaY)*0.08))); T3.auto=false; },{passive:false});
+}
+
+
+/* ======================= LIVE NASA POWER DATA (from the team's nasaPower.ts) =======================
+   Works when the page can reach power.larc.nasa.gov (e.g. the standalone file in a normal browser).
+   Hosted previews block outside requests, so the map falls back to published estimates.
+================================================================================================== */
+const POWER_BASE='https://power.larc.nasa.gov/api/temporal/climatology/point';
+const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
+const pnum=v=>(typeof v==='number'&&isFinite(v)&&v>-900)?v:null;
+async function powerGet(site, params){
+  const r=await fetch(`${POWER_BASE}?parameters=${params}&community=RE&longitude=${site.lon}&latitude=${site.lat}&format=JSON`);
+  if(!r.ok) throw new Error('POWER '+r.status);
+  const j=await r.json(); const p=j&&j.properties&&j.properties.parameter; if(!p) throw new Error('bad response'); return p;
+}
+async function fetchPowerSite(site){
+  const p=await powerGet(site,'T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,ALLSKY_SFC_SW_DWN');
+  const t2m=pnum(p.T2M&&p.T2M.ANN), pr=pnum(p.PRECTOTCORR&&p.PRECTOTCORR.ANN), rh=pnum(p.RH2M&&p.RH2M.ANN), sw=pnum(p.ALLSKY_SFC_SW_DWN&&p.ALLSKY_SFC_SW_DWN.ANN);
+  if(t2m==null||pr==null||sw==null) throw new Error('no coverage');
+  let sum=0,n=0; for(const m of MONTHS){ const hi=pnum(p.T2M_MAX&&p.T2M_MAX[m]), lo=pnum(p.T2M_MIN&&p.T2M_MIN[m]); if(hi!=null&&lo!=null){sum+=hi-lo;n++;} }
+  const precipIdx=clamp(100-pr*25,0,100), humIdx= rh!=null? clamp(130-rh*1.3,0,100) : precipIdx;
+  const out={tmean:Math.round(t2m*10)/10, swing:n?Math.round(sum/n*10)/10:null, arid:Math.round(clamp(0.6*precipIdx+0.4*humIdx,0,100)), solar:clamp(Math.round(sw/8.5*100),0,100), wind:null, dust:null, fetchedAt:new Date().toISOString()};
+  try{ const q=await powerGet(site,'WS2M'); out.wind=pnum(q.WS2M&&q.WS2M.ANN); }catch(e){}
+  try{ const q=await powerGet(site,'AOD_55'); out.dust=pnum(q.AOD_55&&q.AOD_55.ANN); }catch(e){}
+  return out;
+}
+const LIVE_KEY='eaf-power-v1';
+function loadLiveCache(){ try{ const o=JSON.parse(localStorage.getItem(LIVE_KEY)||'null'); if(o&&Date.now()-new Date(o.at).getTime()<864e5) return o.data; }catch(e){} return null; }
+function saveLiveCache(){ try{ const data={}; for(const s of SITES) if(s.live) data[s.id]=s.live; localStorage.setItem(LIVE_KEY,JSON.stringify({at:new Date().toISOString(),data})); }catch(e){} }
+function applyLive(s,live){ s.live=live; s.v={...s.est}; for(const P of PARAMS) if(live[P.k]!=null) s.v[P.k]=live[P.k]; }
+const liveState={status:'idle',done:0};
+function renderStatus(){
+  const el=document.getElementById('dataStatus'), n=SITES.filter(s=>s.live).length, N=SITES.length;
+  let cls='', txt='';
+  if(liveState.status==='loading'){ cls='loading'; txt=`Fetching NASA POWER… ${liveState.done}/${N}`; }
+  else if(n){ cls='live'; txt=`NASA POWER live · ${n}/${N} sites`; }
+  else { cls='est'; txt='Published estimates · live NASA data needs the standalone file'; }
+  el.className=cls; el.innerHTML=`<span class="dot"></span><span class="txt">${txt}</span><button id="refreshBtn" ${liveState.status==='loading'?'disabled':''} title="Fetch NASA POWER climatology again">↻</button>`;
+  document.getElementById('refreshBtn').onclick=()=>fetchAllLive(true);
+}
+function afterLive(){ computeCellValues(); recomputeScores(); drawHeat(); if(state.detail) openDetail(state.detail,true); }
+async function fetchAllLive(force){
+  if(!force){ const c=loadLiveCache(); if(c){ for(const s of SITES) if(c[s.id]) applyLive(s,c[s.id]); liveState.status='done'; renderStatus(); afterLive(); return; } }
+  liveState.status='loading'; liveState.done=0; renderStatus();
+  const queue=[...SITES]; let ok=0;
+  async function worker(){ while(queue.length){ const s=queue.shift(); try{ applyLive(s, await fetchPowerSite(s)); ok++; }catch(e){} liveState.done++; renderStatus(); } }
+  await Promise.all(Array.from({length:6},worker));
+  liveState.status='done'; if(ok) saveLiveCache(); renderStatus(); if(ok) afterLive();
+}
+
+// ---------- method panel (from the team's MethodologyPanel) ----------
+d3.select('#methodRows').html(PARAMS.map(P=>`<tr><td>${P.short}</td><td>${P.power?'NASA POWER':'Estimate (DEM later)'}</td><td>${P.fmt(TARGETS.mars.v[P.k])}</td><td>${TARGETS.moon.v[P.k]==null?'n/a':P.fmt(TARGETS.moon.v[P.k])}</td><td>±${P.k==='dust'?P.scale.toFixed(1):P.scale}</td></tr>`).join(''));
+document.getElementById('methodBtn').addEventListener('click',()=>{ document.getElementById('methodPanel').hidden=false; });
+document.getElementById('methodClose').addEventListener('click',()=>{ document.getElementById('methodPanel').hidden=true; });
+document.getElementById('methodPanel').addEventListener('click',e=>{ if(e.target.id==='methodPanel') e.target.hidden=true; });
+
+// ---------- init ----------
+let rt; addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ const d=state.detail; if(d){wrap.style.transform='';} layout(); if(d){wrap.style.transform=miniTransform(); openDetail(d,true);} },150); });
+layout(); setTarget('mars'); renderStatus(); fetchAllLive(false);
+
+</script>
+</body>
+</html>
