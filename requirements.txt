@@ -1,0 +1,14 @@
+requests
+numpy
+pandas
+rasterio
+geopandas
+shapely
+xarray
+scipy
+matplotlib
+plotly
+flask
+python-dotenv
+scikit-learn
+streamlit
